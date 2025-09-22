@@ -16,33 +16,34 @@ let reconnectAttempts = 0;
 // Advertisement data
 const ads = [
   {
-    image: '/static/ads/Asian.jpg',
-    text: 'Sponsored by: Asian Paints'
+    image: 'https://m.media-amazon.com/images/G/31/Sports_World/ATF_BTF_Banner/Store-ATF-Banner-1400x800-Store-Assest._SY700_QL85_.jpg',
+    text: 'Sponsored by: Asian'
   },
   {
-    image: '/static/ads/cars24.png',
+    image: 'https://grocurv.com/media/original_images/C24.jpg',
     text: 'Brought to you by: Cars24'
   },
   {
-    image: '/static/ads/dermaco.jpg',
+    image: 'https://i.ytimg.com/vi/cZnrxfqmYkk/maxresdefault.jpg',
     text: 'Powered by: The Derma Co.'
   },
   {
-    image: '/static/ads/listerine.jpg',
+    image: 'https://cdna.artstation.com/p/assets/images/images/019/056/448/large/wen-jie-wang-dm2p-18b-wangwenjie-z-06-01.jpg?1561827588',
     text: 'Presented by: LISTERINE'
   },
   {
-    image: '/static/ads/sarat-nair.jpg',
-    text: 'In collaboration with: Blinkit'
+    image: 'https://img.theweek.in/content/dam/week/webworld/feature/society/2016/october/images/amul-ads.jpg',
+    text: 'In collaboration with: AMUL'
   },
   {
-    image: '/static/ads/CU.jpg',
+    image: 'https://newspaperads.ads2publish.com/wp-content/uploads/2021/07/chandigarh-university-cucet-common-entrance-test-registrations-open-for-session-2021-ad-malayala-manorama-kochi-9-7-2021.jpg',
     text: 'Official Partner: Chandigarh University Mohali Campus'
   },
   {
-    image: '/static/ads/Zepto.jpg',
+    image: 'https://i.pinimg.com/474x/02/26/79/022679ecdeaffd5612bbc736f58b938a.jpg',
     text: 'Proudly associated with: Zepto'
   }
+  // https://img.theweek.in/content/dam/week/webworld/feature/society/2016/october/images/amul-ads.jpg
 ];
 
 
