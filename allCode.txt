@@ -1,0 +1,823 @@
+I have developed a broadcast system where host can login and share screeen and all receiver will get that video 
+Tool: Websocket and WebRTC 
+Language: ts, js,html and class
+framework: Node.js 
+package Manager: yarn 
+Here is complete code file wise 
+
+//index.ts
+import express from 'express';
+import http from 'http';
+import path from 'path';
+import { WebSocketServer, WebSocket as WSWebSocket } from 'ws';
+
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+type Peer = WSWebSocket & { isHost?: boolean; id?: string };
+let host: Peer | null = null;
+const viewers = new Map<string, Peer>();
+
+// Serve static files
+app.use('/static', express.static(path.join(__dirname, '../client')));
+app.use('/static/ads', express.static(path.join(__dirname, '../client/ads')));
+
+wss.on('connection', (ws: Peer) => {
+  console.log('New connection');
+  
+  ws.on('message', (msg) => {
+    try {
+      const data = JSON.parse(msg.toString());
+      console.log('Received:', data.type);
+
+      switch (data.type) {
+        case 'host':
+          if (data.password === '1080148') {
+            ws.isHost = true;
+            host = ws;
+            console.log('Host authenticated');
+            
+            // Notify all viewers
+            viewers.forEach(viewer => {
+              viewer.send(JSON.stringify({ 
+                type: 'host-connected',
+                id: viewer.id
+              }));
+            });
+            
+            ws.send(JSON.stringify({ type: 'host-ack' }));
+          } else {
+            ws.send(JSON.stringify({ 
+              type: 'error', 
+              message: 'Invalid password' 
+            }));
+            ws.close();
+          }
+          break;
+
+        case 'join':
+          ws.id = data.id;
+          viewers.set(data.id, ws);
+          console.log(`Viewer ${data.id} joined (${viewers.size} total)`);
+          
+          if (host) {
+            host.send(JSON.stringify({ 
+              type: 'join', 
+              id: data.id 
+            }));
+            ws.send(JSON.stringify({ 
+              type: 'host-connected' 
+            }));
+          } else {
+            ws.send(JSON.stringify({ 
+              type: 'host-disconnected' 
+            }));
+          }
+          break;
+
+        case 'reconnect':
+          if (viewers.has(data.id)) {
+            ws.id = data.id;
+            viewers.set(data.id, ws);
+            console.log(`Viewer ${data.id} reconnected`);
+            if (host) {
+              host.send(JSON.stringify({ 
+                type: 'join', 
+                id: data.id 
+              }));
+            }
+          }
+          break;
+
+        default:
+          // Route messages properly
+          if (ws.isHost) {
+            // Host to specific viewer
+            const target = viewers.get(data.id);
+            if (target && target.readyState === WSWebSocket.OPEN) {
+              target.send(JSON.stringify(data));
+            }
+          } else if (host && host.readyState === WSWebSocket.OPEN) {
+            // Viewer to host
+            host.send(JSON.stringify(data));
+          }
+      }
+    } catch (error) {
+      console.error('Message handling error:', error);
+    }
+  });
+
+  ws.on('close', () => {
+    console.log('Connection closed');
+    if (ws.isHost) {
+      console.log('Host disconnected');
+      host = null;
+      
+      viewers.forEach(viewer => {
+        viewer.send(JSON.stringify({ 
+          type: 'host-disconnected' 
+        }));
+      });
+      
+      viewers.clear();
+    } else if (ws.id) {
+      viewers.delete(ws.id);
+      console.log(`Viewer ${ws.id} disconnected (${viewers.size} remaining)`);
+    }
+  });
+});
+
+// Routes
+app.get('/host', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../client/host.html'));
+});
+
+app.get('/receiver', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../client/receiver.html'));
+});
+
+server.listen(3000, () => {
+  console.log('Server running on http://localhost:3000');
+});
+
+
+//host.js
+const socket = new WebSocket(`ws://${location.host}`);
+const video = document.getElementById('video');
+const startShareBtn = document.getElementById('startShare');
+const peers = {};
+let currentStream = null;
+let isSharing = false;
+
+// Improved screen sharing
+async function startScreenShare() {
+  try {
+    // Stop existing stream if any
+    if (currentStream) {
+      stopScreenShare();
+    }
+
+    console.log('Requesting screen share...');
+    currentStream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        displaySurface: 'monitor',
+        frameRate: 30,
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      },
+      audio: true
+    });
+
+    console.log('Screen share started with', currentStream.getTracks().length, 'tracks');
+
+    // Handle when user stops sharing via browser UI
+    currentStream.getTracks().forEach(track => {
+      track.onended = () => {
+        console.log('Track ended:', track.kind);
+        stopScreenShare();
+      };
+    });
+
+    isSharing = true;
+    video.srcObject = currentStream;
+    startShareBtn.textContent = 'Stop Sharing';
+    
+    // Send to all existing peers
+    Object.keys(peers).forEach(sendStreamToPeer);
+  } catch (error) {
+    console.error('Screen share error:', error);
+    alert(error.message || 'Screen sharing failed');
+    stopScreenShare();
+  }
+}
+
+function stopScreenShare() {
+  console.log('Stopping screen share');
+  if (currentStream) {
+    currentStream.getTracks().forEach(track => track.stop());
+    currentStream = null;
+  }
+  isSharing = false;
+  video.srcObject = null;
+  startShareBtn.textContent = 'Start Screen Share';
+}
+
+async function sendStreamToPeer(peerId) {
+  const pc = peers[peerId];
+  if (!pc) return;
+
+  console.log('Sending stream to peer', peerId);
+
+  // Clear existing tracks
+  pc.getSenders().forEach(sender => {
+    if (sender.track) {
+      console.log('Removing track:', sender.track.kind);
+      pc.removeTrack(sender);
+    }
+  });
+
+  // Add new tracks if available
+  if (isSharing && currentStream) {
+    currentStream.getTracks().forEach(track => {
+      console.log('Adding track:', track.kind);
+      pc.addTrack(track, currentStream);
+    });
+
+    try {
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: false,
+        offerToReceiveVideo: false
+      });
+      await pc.setLocalDescription(offer);
+      
+      socket.send(JSON.stringify({
+        type: 'offer',
+        offer: pc.localDescription,
+        id: peerId
+      }));
+    } catch (error) {
+      console.error('Offer creation error:', error);
+    }
+  }
+}
+
+function createPeerConnection(peerId) {
+  console.log('Creating peer connection for', peerId);
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' }
+    ]
+  });
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.send(JSON.stringify({
+        type: 'candidate',
+        candidate: event.candidate,
+        id: peerId
+      }));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    console.log(`Peer ${peerId} state:`, pc.connectionState);
+    if (pc.connectionState === 'disconnected' || 
+        pc.connectionState === 'failed') {
+      delete peers[peerId];
+    }
+  };
+
+  return pc;
+}
+
+// Event listeners
+startShareBtn.onclick = async () => {
+  if (isSharing) {
+    stopScreenShare();
+    return;
+  }
+
+  const password = prompt('Enter host password:');
+  if (password !== '1080148') {
+    alert('Incorrect password');
+    return;
+  }
+
+  socket.send(JSON.stringify({ type: 'host', password }));
+};
+
+socket.onmessage = async (event) => {
+  try {
+    const data = JSON.parse(event.data);
+    console.log('Host received:', data.type);
+
+    switch (data.type) {
+      case 'join':
+        if (!peers[data.id]) {
+          peers[data.id] = createPeerConnection(data.id);
+          if (isSharing) {
+            await sendStreamToPeer(data.id);
+          }
+        }
+        break;
+
+      case 'answer':
+        if (peers[data.id]) {
+          await peers[data.id].setRemoteDescription(
+            new RTCSessionDescription(data.answer)
+          );
+        }
+        break;
+
+      case 'candidate':
+        if (peers[data.id] && data.candidate) {
+          await peers[data.id].addIceCandidate(
+            new RTCIceCandidate(data.candidate)
+          );
+        }
+        break;
+
+      case 'host-ack':
+        console.log('Host authenticated, starting share');
+        await startScreenShare();
+        break;
+    }
+  } catch (error) {
+    console.error('Host message error:', error);
+  }
+};
+
+socket.onclose = () => {
+  console.log('WebSocket closed');
+  stopScreenShare();
+};
+
+socket.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+
+//host.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HBCH&RC Punjab Broadcast System</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+        }
+        header {
+            background-color: #004085;
+            color: white;
+            padding: 20px 40px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        header p {
+            margin: 5px 0 0;
+            font-size: 16px;
+            color: #d0d8e3;
+        }
+        main {
+            padding: 30px 20px;
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        #video {
+            width: 100%;
+            height: auto;
+            background-color: black;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .controls {
+            text-align: center;
+            margin-top: 20px;
+        }
+        #startShare {
+            background-color: #007bff;
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #startShare:hover {
+            background-color: #0056b3;
+        }
+        footer {
+            margin-top: 50px;
+            text-align: center;
+            color: #777;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>HBCH&RC Punjab Broadcast System</h1>
+        <p>Live Screen Sharing System for Oncology Center Communications</p>
+    </header>
+
+    <main>
+        <video id="video" autoplay muted playsinline controls></video>
+        <div class="controls">
+            <button id="startShare">Start Screen Share</button>
+        </div>
+    </main>
+
+    <footer>
+        &copy; 2025 HBCH&RC Punjab | All rights reserved.
+    </footer>
+
+    <script src="/static/host.js"></script>
+</body>
+</html>
+
+//receiver.js
+const socket = new WebSocket(`ws://${location.host}`);
+console.log(location.host);
+const video = document.getElementById('video');
+const statusEl = document.getElementById('status-message');
+const connectionStatusEl = document.getElementById('connection-status');
+const adImage = document.getElementById('ad-image');
+const adText = document.getElementById('ad-text');
+
+// Generate unique ID for this receiver
+const id = 'viewer-' + Math.random().toString(36).substring(2);
+let pc = null;
+let reconnectTimer = null;
+const MAX_RECONNECT_ATTEMPTS = 5;
+let reconnectAttempts = 0;
+
+// Advertisement data
+const ads = [
+  {
+    image: '/static/ads/medical1.jpeg',
+    text: 'Supported by: Punjab Oncology Research Center'
+  },
+  {
+    image: '/static/ads/medical2.jpeg',
+    text: 'Today\'s health tip: Regular screenings save lives'
+  },
+  {
+    image: '/static/ads/medical3.jpeg',
+    text: 'Sponsored by: HBCH&RC Punjab Medical Equipment'
+  }
+];
+
+// Initialize
+rotateAd();
+setInterval(rotateAd, 30000); // Rotate every 30 seconds
+updateConnectionStatus(false);
+showStatusMessage('Connecting to broadcast server...');
+
+// WebSocket handlers
+socket.onopen = () => {
+  console.log('WebSocket connected');
+  socket.send(JSON.stringify({ type: 'join', id }));
+};
+
+socket.onmessage = async (event) => {
+  console.log('Received:', event.data);
+  try {
+    const data = JSON.parse(event.data);
+
+    switch (data.type) {
+      case 'offer':
+        await handleOffer(data);
+        break;
+
+      case 'candidate':
+        await handleCandidate(data);
+        break;
+
+      case 'host-connected':
+        handleHostConnected();
+        break;
+
+      case 'host-disconnected':
+        handleHostDisconnected();
+        break;
+    }
+  } catch (error) {
+    console.error('Message handling error:', error);
+  }
+};
+
+socket.onclose = () => {
+  console.log('WebSocket closed');
+  handleHostDisconnected();
+  attemptReconnect();
+};
+
+socket.onerror = (error) => {
+  console.error('WebSocket error:', error);
+  showStatusMessage('Connection error');
+};
+
+// Peer Connection management
+async function handleOffer(data) {
+  if (!pc) {
+    pc = createPeerConnection();
+  }
+
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    
+    socket.send(JSON.stringify({
+      type: 'answer',
+      answer: pc.localDescription,
+      id
+    }));
+  } catch (error) {
+    console.error('Offer handling error:', error);
+  }
+}
+
+async function handleCandidate(data) {
+  if (pc && data.candidate) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    } catch (error) {
+      console.error('Candidate error:', error);
+    }
+  }
+}
+
+function createPeerConnection() {
+  console.log('Creating new PeerConnection');
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  });
+
+  pc.ontrack = (event) => {
+    if (event.streams && event.streams[0]) {
+      console.log('Received stream with', event.streams[0].getTracks().length, 'tracks');
+      video.srcObject = event.streams[0];
+      showStatusMessage('Stream started');
+      updateConnectionStatus(true);
+      reconnectAttempts = 0;
+    }
+  };
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.send(JSON.stringify({
+        type: 'candidate',
+        candidate: event.candidate,
+        id
+      }));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    console.log('Connection state:', pc.connectionState);
+    if (pc.connectionState === 'disconnected' || 
+        pc.connectionState === 'failed') {
+      handleHostDisconnected();
+    }
+  };
+
+  return pc;
+}
+
+// Status management
+function handleHostConnected() {
+  showStatusMessage('Host connected. Starting stream...');
+  updateConnectionStatus(true);
+  reconnectAttempts = 0;
+  clearTimeout(reconnectTimer);
+}
+
+function handleHostDisconnected() {
+  showStatusMessage('Host disconnected');
+  updateConnectionStatus(false);
+  cleanupPeerConnection();
+}
+
+function cleanupPeerConnection() {
+  if (pc) {
+    pc.close();
+    pc = null;
+  }
+  if (video.srcObject) {
+    video.srcObject = null;
+  }
+}
+
+function attemptReconnect() {
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    showStatusMessage('Failed to reconnect. Please refresh the page.');
+    return;
+  }
+
+  reconnectAttempts++;
+  const delay = Math.min(30000, 2000 * reconnectAttempts);
+  
+  showStatusMessage(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+  
+  reconnectTimer = setTimeout(() => {
+    socket.send(JSON.stringify({ type: 'reconnect', id }));
+  }, delay);
+}
+
+// UI functions
+function rotateAd() {
+  const ad = ads[Math.floor(Math.random() * ads.length)];
+  adImage.src = ad.image;
+  adText.textContent = ad.text;
+}
+
+function showStatusMessage(message) {
+  statusEl.textContent = message;
+  statusEl.style.display = 'block';
+  
+  if (!message.includes('Attempting') && !message.includes('Failed')) {
+    setTimeout(() => {
+      statusEl.style.display = 'none';
+    }, 3000);
+  }
+}
+
+function updateConnectionStatus(connected) {
+  connectionStatusEl.textContent = connected ? 'Live' : 'Offline';
+  connectionStatusEl.className = connected 
+    ? 'connection-status status-connected' 
+    : 'connection-status status-disconnected';
+}
+
+// Handle page visibility changes
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !pc) {
+    socket.send(JSON.stringify({ type: 'reconnect', id }));
+  }
+});
+
+receiver.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Receiver View – HBCH&RC Punjab Broadcast</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #eef1f5;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      background-color: #004085;
+      color: white;
+      padding: 15px 30px;
+      text-align: center;
+    }
+    header h1 {
+      font-size: 24px;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      gap: 20px;
+    }
+    @media (min-width: 768px) {
+      main {
+        flex-direction: row;
+      }
+    }
+    .video-container {
+      flex: 3;
+      background: #000;
+      border-radius: 8px;
+      position: relative;
+      min-height: 300px;
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #000;
+    }
+    .ad-container {
+      flex: 1;
+      background: white;
+      border-radius: 8px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      min-width: 250px;
+    }
+    .ad-title {
+      color: #004085;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .ad-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border: 2px dashed #ccc;
+      border-radius: 4px;
+    }
+    .ad-image {
+      max-width: 100%;
+      max-height: 200px;
+    }
+    .ad-text {
+      margin-top: 10px;
+      text-align: center;
+      font-style: italic;
+      color: #555;
+    }
+    #status-message {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      z-index: 100;
+      display: none;
+    }
+    .connection-status {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: #dc3545;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 14px;
+      z-index: 100;
+    }
+    .status-connected {
+      background: #28a745;
+    }
+    footer {
+      text-align: center;
+      padding: 10px;
+      color: #666;
+      background: #dee2e6;
+      font-size: 14px;
+    }
+    .mobile-warning {
+      display: none;
+      padding: 10px;
+      background: #fff3cd;
+      color: #856404;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    @media (max-width: 767px) {
+      .mobile-warning {
+        display: block;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HBCH&RC Punjab Broadcast Receiver</h1>
+  </header>
+
+  <div class="mobile-warning">
+    For best experience on mobile, use Chrome or Firefox and keep screen awake
+  </div>
+
+  <main>
+    <div class="video-container">
+      <video id="video" autoplay playsinline controls></video>
+      <div id="status-message"></div>
+      <div id="connection-status" class="connection-status">Offline</div>
+    </div>
+    <div class="ad-container">
+      <h2 class="ad-title">Sponsored Message</h2>
+      <div class="ad-content">
+        <img id="ad-image" class="ad-image" src="" alt="Advertisement">
+        <div id="ad-text" class="ad-text"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    &copy; 2025 HBCH&RC Punjab. Broadcast system for clinical awareness.
+  </footer>
+
+  <script src="/static/receiver.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HBCH&RC Punjab Broadcast System</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+        }
+        header {
+            background-color: #004085;
+            color: white;
+            padding: 20px 40px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        header p {
+            margin: 5px 0 0;
+            font-size: 16px;
+            color: #d0d8e3;
+        }
+        main {
+            padding: 30px 20px;
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        #video {
+            width: 100%;
+            height: auto;
+            background-color: black;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .controls {
+            text-align: center;
+            margin-top: 20px;
+        }
+        #startShare {
+            background-color: #007bff;
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #startShare:hover {
+            background-color: #0056b3;
+        }
+        footer {
+            margin-top: 50px;
+            text-align: center;
+            color: #777;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>HBCH&RC Punjab Broadcast System</h1>
+        <p>Live Screen Sharing System for Oncology Center Communications</p>
+    </header>
+
+    <main>
+        <video id="video" autoplay muted playsinline controls></video>
+        <div class="controls">
+            <button id="startShare">Start Screen Share</button>
+        </div>
+    </main>
+
+    <footer>
+        &copy; 2025 HBCH&RC Punjab | All rights reserved.
+    </footer>
+
+    <script src="/static/host.js"></script>
+</body>
+</html>
